@@ -31,6 +31,7 @@ import { bundleInstallContext, bundleInstallContextLines, isExistingBundleTarget
 import { confirmStoppedGenerations } from "./running-name-guard.js";
 import { inspectBundleBehaviour } from "./bundle-behaviour-inspect.js";
 import { getDaemonVersion } from "./daemon-version.js";
+import { withRigName } from "./rig-name-override.js";
 
 /** Bootstrap mode */
 export type BootstrapMode = "plan" | "apply";
@@ -43,6 +44,8 @@ export interface BootstrapOptions {
   cwdOverride?: string;
   /** One-off launch env from `rig up --env`; used for this launch only and not saved. */
   envOverride?: SeatEnv;
+  /** Rig name from `rig up --name`; replaces the spec's `name:` for this rig, which keeps it from then on. */
+  rigName?: string;
   autoApprove?: boolean;
   nonInterruptive?: boolean;
   approvedActionKeys?: string[];
@@ -182,7 +185,7 @@ export class BootstrapOrchestrator {
         let podBundleTempDir: string | null = null;
         try {
           const podSource = await this.deps.podBundleSourceResolver.resolve(sourceRef);
-          const rawYaml = this.deps.fsOps.readFile(podSource.specPath);
+          const rawYaml = withRigName(this.deps.fsOps.readFile(podSource.specPath), opts.rigName);
           specDir = nodePath.dirname(podSource.specPath);
           let installRoot: string | undefined;
           podBundleTempDir = podSource.tempDir;
@@ -289,7 +292,7 @@ export class BootstrapOrchestrator {
         bundleSource = await this.deps.bundleSourceResolver.resolve(sourceRef);
         bundleTempDir = bundleSource.tempDir;
         specDir = nodePath.dirname(bundleSource.specPath);
-        const rawYaml = this.deps.fsOps.readFile(bundleSource.specPath);
+        const rawYaml = withRigName(this.deps.fsOps.readFile(bundleSource.specPath), opts.rigName);
         const raw = RigSpecCodec.parse(rawYaml);
         const validation = RigSpecSchema.validate(raw);
         if (!validation.valid) {
@@ -310,7 +313,7 @@ export class BootstrapOrchestrator {
       // Direct rig_spec path — detect format BEFORE legacy validation
       try {
         specDir = nodePath.dirname(nodePath.resolve(sourceRef));
-        const rawYaml = this.deps.fsOps.readFile(nodePath.resolve(sourceRef));
+        const rawYaml = withRigName(this.deps.fsOps.readFile(nodePath.resolve(sourceRef)), opts.rigName);
         const raw = RigSpecCodec.parse(rawYaml) as Record<string, unknown> | null;
 
         // Pod-aware format detection: if has pods[], delegate to PodRigInstantiator
