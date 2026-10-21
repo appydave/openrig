@@ -110,6 +110,7 @@ export function upCommand(
 Examples:
   rig up secrets-manager
   rig up ./rig.yaml
+  rig up ./rig.yaml --name alpha
   rig up ./demo.rigbundle --target ~/work
 
 An existing rig's name restores that rig from its automatically selected usable
