@@ -335,6 +335,19 @@ describe("BootstrapOrchestrator", () => {
       expect(rigRepo.getRig(result.rigId!)!.nodes.every((node) => !node.env)).toBe(true);
     });
 
+    it("rig up --name: launches under rigName, with every seat session named for it", async () => {
+      const { orch, tmux, rigRepo } = await realLaunch();
+      const result = await orch.bootstrap({ mode: "apply", ...await source(), rigName: "alpha" });
+      expect(result.status, JSON.stringify(result)).toBe("completed");
+      expect(rigRepo.getRig(result.rigId!)!.rig.name).toBe("alpha");
+      const sessions = vi.mocked(tmux.createSession).mock.calls.map(([session]) => session as string);
+      expect(sessions).toHaveLength(2);
+      for (const session of sessions) {
+        expect(session).toContain("alpha");
+        expect(session).not.toContain("test-rig");
+      }
+    });
+
     describe.each([true, false])("cleanup failure accounting, single seat=%s", (singleSeat) => {
       it.each(["confirmed", "unconfirmed", "throw"] as const)("reports the stopped launch and retained effects when removal is %s", async (removal) => {
         const { orch, tmux, rigRepo, started, live } = await realLaunch({ removal });
