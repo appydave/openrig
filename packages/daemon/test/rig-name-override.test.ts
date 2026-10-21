@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parse } from "yaml";
-import { withRigName } from "../src/domain/rig-name-override.js";
+import { rigNameComposeProjectConflict, withRigName } from "../src/domain/rig-name-override.js";
 
 const SPEC = [
   `# team spec`,
@@ -39,5 +39,25 @@ describe("withRigName", () => {
 
   it("leaves text it cannot parse as a mapping for the existing parse error", () => {
     for (const text of ["pods: [unclosed\n", "- a\n- b\n"]) expect(withRigName(text, "alpha")).toBe(text);
+  });
+});
+
+describe("rigNameComposeProjectConflict", () => {
+  const withServices = (projectName?: string) => `version: "0.2"\nname: solo\nservices:\n  kind: compose\n  compose_file: compose.yaml\n${projectName ? `  project_name: ${projectName}\n` : ""}pods: []\nedges: []\n`;
+
+  it("refuses a chosen name when the spec fixes services.project_name, naming the project", () => {
+    const message = rigNameComposeProjectConflict(withServices("shared-db"), "alpha");
+    expect(message).toContain("shared-db");
+    expect(message).toContain("--name alpha");
+  });
+
+  it("allows a launch without a chosen name, a spec without project_name, and a spec without services", () => {
+    expect(rigNameComposeProjectConflict(withServices("shared-db"), undefined)).toBeNull();
+    expect(rigNameComposeProjectConflict(withServices(), "alpha")).toBeNull();
+    expect(rigNameComposeProjectConflict(SPEC, "alpha")).toBeNull();
+  });
+
+  it("leaves text it cannot parse for the existing parse error", () => {
+    expect(rigNameComposeProjectConflict("services: [unclosed\n", "alpha")).toBeNull();
   });
 });

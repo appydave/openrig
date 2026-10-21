@@ -31,7 +31,7 @@ import { bundleInstallContext, bundleInstallContextLines, isExistingBundleTarget
 import { confirmStoppedGenerations } from "./running-name-guard.js";
 import { inspectBundleBehaviour } from "./bundle-behaviour-inspect.js";
 import { getDaemonVersion } from "./daemon-version.js";
-import { withRigName } from "./rig-name-override.js";
+import { rigNameComposeProjectConflict, withRigName } from "./rig-name-override.js";
 
 /** Bootstrap mode */
 export type BootstrapMode = "plan" | "apply";
@@ -185,7 +185,10 @@ export class BootstrapOrchestrator {
         let podBundleTempDir: string | null = null;
         try {
           const podSource = await this.deps.podBundleSourceResolver.resolve(sourceRef);
-          const rawYaml = withRigName(this.deps.fsOps.readFile(podSource.specPath), opts.rigName);
+          const sourceYaml = this.deps.fsOps.readFile(podSource.specPath);
+          const sharedProject = rigNameComposeProjectConflict(sourceYaml, opts.rigName);
+          if (sharedProject) return this.refuseRigName(run, stages, warnings, sharedProject);
+          const rawYaml = withRigName(sourceYaml, opts.rigName);
           specDir = nodePath.dirname(podSource.specPath);
           let installRoot: string | undefined;
           podBundleTempDir = podSource.tempDir;
@@ -313,7 +316,10 @@ export class BootstrapOrchestrator {
       // Direct rig_spec path — detect format BEFORE legacy validation
       try {
         specDir = nodePath.dirname(nodePath.resolve(sourceRef));
-        const rawYaml = withRigName(this.deps.fsOps.readFile(nodePath.resolve(sourceRef)), opts.rigName);
+        const sourceYaml = this.deps.fsOps.readFile(nodePath.resolve(sourceRef));
+        const sharedProject = rigNameComposeProjectConflict(sourceYaml, opts.rigName);
+        if (sharedProject) return this.refuseRigName(run, stages, warnings, sharedProject);
+        const rawYaml = withRigName(sourceYaml, opts.rigName);
         const raw = RigSpecCodec.parse(rawYaml) as Record<string, unknown> | null;
 
         // Pod-aware format detection: if has pods[], delegate to PodRigInstantiator
@@ -681,6 +687,12 @@ export class BootstrapOrchestrator {
   }
 
   // -- Pod-aware bootstrap path --
+
+  private refuseRigName(run: { id: string }, stages: BootstrapStageResult[], warnings: string[], message: string): BootstrapResult {
+    stages.push({ stage: "resolve_spec", status: "failed", detail: { code: "rig_name_compose_project", error: message } });
+    this.deps.bootstrapRepo.updateRunStatus(run.id, "failed");
+    return { runId: run.id, status: "failed", stages, errors: [message], warnings };
+  }
 
   private async handlePodAwareSpec(
     opts: BootstrapOptions,

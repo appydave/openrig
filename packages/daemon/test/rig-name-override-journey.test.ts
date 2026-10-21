@@ -216,6 +216,32 @@ describe("rig up --name: the chosen name is the rig's identity", () => {
   });
 });
 
+describe("rig up --name with a fixed Compose project", () => {
+  const servicesSpec = specYaml("solo").replace("pods:", "services:\n  kind: compose\n  compose_file: compose.yaml\n  project_name: shared-db\npods:");
+
+  it.each(["apply", "plan"] as const)("refuses a chosen name when the spec sets services.project_name (%s), and creates nothing", async (mode) => {
+    const f = fixture();
+    const specPath = nodePath.join(f.root, "services.yaml");
+    fs.writeFileSync(specPath, servicesSpec);
+    const result = await f.bootstrap.bootstrap({ mode, sourceRef: specPath, rigName: "alpha" });
+    expect(result.status).toBe("failed");
+    expect(result.stages.find((s) => s.stage === "resolve_spec")?.detail).toMatchObject({ code: "rig_name_compose_project" });
+    expect(result.errors.join("\n")).toContain("shared-db");
+    expect(f.rigRepo.findUnarchivedRigsByName("alpha")).toEqual([]);
+    expect(f.tmux.createSession).not.toHaveBeenCalled();
+    f.db.close();
+  });
+
+  it("does not refuse the same spec launched without a name", async () => {
+    const f = fixture();
+    const specPath = nodePath.join(f.root, "services.yaml");
+    fs.writeFileSync(specPath, servicesSpec);
+    const result = await f.bootstrap.bootstrap({ mode: "plan", sourceRef: specPath });
+    expect(JSON.stringify(result)).not.toContain("rig_name_compose_project");
+    f.db.close();
+  });
+});
+
 describe("rig up --name survives snapshot and restore", () => {
   it("restore by the chosen name keeps @alpha seat names and rigs.name", async () => {
     const f = fixture();
