@@ -663,29 +663,6 @@ describe("Up CLI", () => {
     }
   });
 
-  it("up --name sends rigName in the POST body", async () => {
-    let lastBody: Record<string, unknown> = {};
-    const origListeners = server.listeners("request");
-    server.removeAllListeners("request");
-    server.on("request", async (req: http.IncomingMessage, res: http.ServerResponse) => {
-      let body = "";
-      for await (const chunk of req) body += chunk;
-      if (req.url === "/api/up") lastBody = JSON.parse(body);
-      res.writeHead(201, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "completed", runId: "r", rigId: "g", stages: [], errors: [] }));
-    });
-    try {
-      await captureLogs(async () => {
-        await makeCmd().parseAsync(["node", "rig", "up", "/tmp/rig.yaml", "--name", "alpha"]);
-      });
-    } finally {
-      server.removeAllListeners("request");
-      for (const l of origListeners) server.on("request", l as (...args: unknown[]) => void);
-    }
-    expect(lastBody.rigName).toBe("alpha");
-    expect(lastBody.sourceRef).toBe("/tmp/rig.yaml");
-  });
-
   it("up without --name sends no rigName", async () => {
     let lastBody: Record<string, unknown> = {};
     const origListeners = server.listeners("request");

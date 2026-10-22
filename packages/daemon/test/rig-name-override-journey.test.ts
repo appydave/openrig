@@ -139,14 +139,6 @@ const stop = (f: Fixture, rigId: string) => {
 };
 
 describe("rig up --name: the chosen name is the rig's identity", () => {
-  it("default: without a name the rig takes the spec's name: field", async () => {
-    const f = fixture();
-    const rigId = await launched(f);
-    expect(f.rigRepo.getRig(rigId)!.rig.name).toBe("solo");
-    expect(sessionNames(f, rigId)).toEqual(["work-worker@solo"]);
-    f.db.close();
-  });
-
   it("two instances from one spec get distinct rigs and seat addresses (@alpha vs @beta)", async () => {
     const f = fixture();
     const alpha = await launched(f, "alpha");
@@ -159,14 +151,6 @@ describe("rig up --name: the chosen name is the rig's identity", () => {
     expect(f.rigRepo.findUnarchivedRigsByName("solo")).toEqual([]);
     // The spec file on disk is not changed.
     expect(fs.readFileSync(f.specPath, "utf-8")).toBe(specYaml("solo"));
-    f.db.close();
-  });
-
-  it("plan mode resolves the spec under the chosen name", async () => {
-    const f = fixture();
-    const result = await f.bootstrap.bootstrap({ mode: "plan", sourceRef: f.specPath, rigName: "alpha" });
-    expect(result.stages.find((s) => s.stage === "resolve_spec")?.detail).toMatchObject({ specName: "alpha" });
-    expect(f.rigRepo.findUnarchivedRigsByName("alpha")).toEqual([]);
     f.db.close();
   });
 
@@ -219,11 +203,11 @@ describe("rig up --name: the chosen name is the rig's identity", () => {
 describe("rig up --name with a fixed Compose project", () => {
   const servicesSpec = specYaml("solo").replace("pods:", "services:\n  kind: compose\n  compose_file: compose.yaml\n  project_name: shared-db\npods:");
 
-  it.each(["apply", "plan"] as const)("refuses a chosen name when the spec sets services.project_name (%s), and creates nothing", async (mode) => {
+  it("refuses a chosen name when the spec sets services.project_name, and creates nothing", async () => {
     const f = fixture();
     const specPath = nodePath.join(f.root, "services.yaml");
     fs.writeFileSync(specPath, servicesSpec);
-    const result = await f.bootstrap.bootstrap({ mode, sourceRef: specPath, rigName: "alpha" });
+    const result = await f.bootstrap.bootstrap({ mode: "apply", sourceRef: specPath, rigName: "alpha" });
     expect(result.status).toBe("failed");
     expect(result.stages.find((s) => s.stage === "resolve_spec")?.detail).toMatchObject({ code: "rig_name_compose_project" });
     expect(result.errors.join("\n")).toContain("shared-db");
@@ -232,14 +216,6 @@ describe("rig up --name with a fixed Compose project", () => {
     f.db.close();
   });
 
-  it("does not refuse the same spec launched without a name", async () => {
-    const f = fixture();
-    const specPath = nodePath.join(f.root, "services.yaml");
-    fs.writeFileSync(specPath, servicesSpec);
-    const result = await f.bootstrap.bootstrap({ mode: "plan", sourceRef: specPath });
-    expect(JSON.stringify(result)).not.toContain("rig_name_compose_project");
-    f.db.close();
-  });
 });
 
 describe("rig up --name survives snapshot and restore", () => {

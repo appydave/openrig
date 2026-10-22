@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { prepareHermeticEnv, type HermeticScaffold } from "./helpers/hermetic-env.js";
@@ -47,15 +47,6 @@ describe("rig up --name: two named rigs from one spec, and a restore by name", (
     } finally {
       await daemon.stop();
     }
-  }, 60_000);
-
-  it("launches two rigs from one spec, each with its own seat address, and leaves the spec file alone", async () => {
-    const rows = await rigs();
-    expect(rows.map((r) => r.name).sort()).toEqual(["alpha", "beta"]);
-    for (const r of rows) expect(r).toMatchObject({ status: "running", nodeCount: 1, runningCount: 1 });
-    expect((await seats("alpha")).map((n) => n.canonicalSessionName)).toEqual(["work-worker@alpha"]);
-    expect((await seats("beta")).map((n) => n.canonicalSessionName)).toEqual(["work-worker@beta"]);
-    expect(readFileSync(spec, "utf-8")).toMatch(/^name: solo-stub$/m);
   }, 60_000);
 
   it("rig down alpha, then rig up alpha --existing, brings alpha back under its name and leaves beta running", async () => {

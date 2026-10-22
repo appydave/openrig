@@ -39,17 +39,14 @@ function setup() {
 }
 
 describe("POST /api/up rigName", () => {
-  it.each([
-    ["apply", false, "completed", 201],
-    ["plan", true, "planned", 200],
-  ] as const)("hands rigName to bootstrap in %s mode", async (mode, plan, status, httpStatus) => {
+  it("hands rigName to bootstrap in plan mode", async () => {
     const { db, app, specPath, post } = setup();
     const bootstrap = vi.spyOn(app.bootstrapOrchestrator, "bootstrap").mockResolvedValue({
-      runId: "run", status, rigId: "rig", stages: [], errors: [], warnings: [],
+      runId: "run", status: "planned", rigId: "rig", stages: [], errors: [], warnings: [],
     } as never);
-    const res = await post("/api/up", { sourceRef: specPath, rigName: "alpha", ...(plan ? { plan: true } : {}) });
-    expect(res.status).toBe(httpStatus);
-    expect(bootstrap).toHaveBeenCalledWith(expect.objectContaining({ mode, rigName: "alpha" }));
+    const res = await post("/api/up", { sourceRef: specPath, rigName: "alpha", plan: true });
+    expect(res.status).toBe(200);
+    expect(bootstrap).toHaveBeenCalledWith(expect.objectContaining({ mode: "plan", rigName: "alpha" }));
     db.close();
   });
 

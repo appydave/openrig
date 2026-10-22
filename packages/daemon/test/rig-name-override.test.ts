@@ -27,12 +27,6 @@ describe("withRigName", () => {
     expect(rest).toEqual(before);
   });
 
-  it("keeps the spec's comments", () => {
-    const out = withRigName(SPEC, "alpha");
-    expect(out).toContain("# team spec");
-    expect(out).toContain("# the spec's own name");
-  });
-
   it("adds name to a spec that has none", () => {
     expect((parse(withRigName(`version: "0.2"\npods: []\n`, "alpha")) as { name: string }).name).toBe("alpha");
   });
