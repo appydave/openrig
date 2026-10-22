@@ -108,6 +108,7 @@ describe("SettingsStore (User Settings v0)", () => {
       "context.root",
       "context.system_world",
       "skills.root",
+      "skills.router_line.enabled",
       "onboarding.default_pack.enabled",
       "launch.non_interruptive",
       "health.context_pressure.warning_percent",
@@ -386,6 +387,35 @@ describe("SettingsStore (User Settings v0)", () => {
     vi.unstubAllEnvs();
     store.reset("bundle.services_enabled");
     expect(store.resolveOne("bundle.services_enabled")).toMatchObject({ value: false, source: "default" });
+  });
+
+  it("reset(key) removes a section it leaves empty", () => {
+    const store = new SettingsStore(configPath);
+    store.set("bundle.services_enabled", "true");
+    store.reset("bundle.services_enabled");
+    const raw = JSON.parse(readFileSync(configPath, "utf8"));
+    expect(raw.bundle).toBeUndefined();
+  });
+
+  it("reset(key) keeps the section when a sibling key remains", () => {
+    const store = new SettingsStore(configPath);
+    store.set("transport.local_user_guard", "true");
+    store.set("transport.verify_input_box", "true");
+    store.reset("transport.local_user_guard");
+    const raw = JSON.parse(readFileSync(configPath, "utf8"));
+    expect(raw.transport).toEqual({ verifyInputBox: true });
+  });
+
+  it("reset(key) leaves a pre-existing unrelated empty object alone", () => {
+    const store = new SettingsStore(configPath);
+    store.set("transport.local_user_guard", "true");
+    const raw1 = JSON.parse(readFileSync(configPath, "utf8"));
+    raw1.unrelatedEmptySection = {};
+    writeFileSync(configPath, JSON.stringify(raw1, null, 2) + "\n");
+    store.reset("transport.local_user_guard");
+    const raw2 = JSON.parse(readFileSync(configPath, "utf8"));
+    expect(raw2.unrelatedEmptySection).toEqual({});
+    expect(raw2.transport).toBeUndefined();
   });
 
   it("local user guard is opt-in and resolves the file/env twins", () => {

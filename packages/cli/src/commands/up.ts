@@ -277,7 +277,6 @@ team back with its conversations, run rig up <rig-name> --existing, not the spec
           for (const line of formatRemoteUpFailure(opts.host, result)) console.error(line);
           process.exitCode = 1;
         }
-        if ((result.data as Record<string, unknown> | undefined)?.code === "seat_env_cleanup_failed") process.exitCode = 1;
         return;
       }
 
@@ -568,7 +567,6 @@ team back with its conversations, run rig up <rig-name> --existing, not the spec
       if (opts.json) {
         console.log(JSON.stringify(res.data));
         if (res.status >= 400) process.exitCode = res.status === 409 ? 1 : 2;
-        else if (res.data["code"] === "seat_env_cleanup_failed") process.exitCode = 1;
         const rigResult = res.data["rigResult"] as string | undefined;
         if (rigResult === "partially_restored" || rigResult === "failed" || rigResult === "not_attempted") process.exitCode = 1;
         return;
@@ -693,9 +691,10 @@ team back with its conversations, run rig up <rig-name> --existing, not the spec
         const nodes = (res.data["nodes"] as Array<{ logicalId: string; status: string; error?: string }>) ?? [];
         for (const n of nodes) {
           // OPR.0.3.4.2 — the five-term vocabulary renders distinctly; the
-          // awaiting-decision reason is part of the line (not a dead end).
-          if (n.status === "awaiting-decision" && n.error) {
-            console.log(`  ${n.logicalId}: awaiting-decision — ${n.error}`);
+          // awaiting-decision reason is part of the line (not a dead end), and so is a failed seat's (such as a seat held
+          // back for a missing startup file, with its fix).
+          if ((n.status === "awaiting-decision" || n.status === "failed") && n.error) {
+            console.log(`  ${n.logicalId}: ${n.status} — ${n.error}`);
           } else {
             console.log(`  ${n.logicalId}: ${n.status}`);
           }
@@ -776,6 +775,14 @@ team back with its conversations, run rig up <rig-name> --existing, not the spec
           console.log(`Dashboard: rig ui open`);
         }
         console.log(`Status: ${resStatus}`);
+        // A seat that failed to launch says why (its named error), as --json already carries it: in the import stage's
+        // result, or at the top level.
+        type NodeResult = { logicalId: string; status: string; error?: string };
+        const importDetail = stages.find((s) => s.stage === "import_rig") as { detail?: { nodes?: NodeResult[]; result?: { nodes?: NodeResult[] } } } | undefined;
+        const launchNodes = importDetail?.detail?.nodes ?? importDetail?.detail?.result?.nodes ?? (res.data["nodes"] as NodeResult[] | undefined) ?? [];
+        for (const n of launchNodes) {
+          if (n.status === "failed" && n.error) console.error(`  ${n.logicalId}: failed: ${n.error}`);
+        }
         for (const line of startupAttentionSummary(res.data)) console.log(line);
 
         // Surface warnings (e.g. transcript attach failures)

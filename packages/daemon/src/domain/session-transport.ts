@@ -1662,8 +1662,6 @@ export interface SendResult {
   waitedMs?: number;
   attempts?: number;
   sent?: boolean;
-  /** Present only when transport.verify_input_box applied to this send. */
-  inputBox?: InputBoxEvidence;
   /** Context, not a status: the seat was in a managed compaction or restore OpenRig had recorded when this send ran. The
    *  send's own result (ok, outcome, error) is unchanged by it, and it never says the restore finished. */
   managedCompaction?: { stage: string; observed: "before_send" | "after_send"; notice: string };
@@ -1678,27 +1676,22 @@ export interface SendResult {
  *  (the sent text, but a row break in the box may fall inside a word, so its word boundaries cannot be told),
  *  `empty`, `queued` (Claude's queued-messages label, or an empty box while a turn was running, so the message may
  *  wait behind it), `hidden` (a collapsed paste label), `other` (any other text), `unrecognized` (no recognized
- *  input box, or a frame that names another client version), `unavailable` (no capture, or none in time) or
- *  `unchecked` (this path does not read the box: an audited prompt answer). */
-export type InputBoxReading = "exact" | "ambiguous" | "empty" | "queued" | "hidden" | "other" | "unrecognized" | "unavailable" | "unchecked";
+ *  input box, or a frame that names another client version) or `unavailable` (no capture, or none in time). */
+export type InputBoxReading = "exact" | "ambiguous" | "empty" | "queued" | "hidden" | "other" | "unrecognized" | "unavailable";
 
 /** With transport.verify_input_box on: what the seat showed before the paste, and what a Claude Code or Codex
- *  input box showed before and after Enter. Reporting only. `verified` is true only for a seat proven idle
- *  before the paste, then exact, then empty, on the same pane process (`#{pane_pid}`, the pane's root process);
- *  that means the box was cleared after holding the text, normally by our Enter, never that the model read it.
- *  `sameProcess` compares the pane's root process (usually a shell) and the seat's binding: an agent restarted
- *  under the same shell is not caught by it, and the same pane and binding are not proof of the same native
- *  conversation. An audited prompt answer is not checked: `seat`, `before` and `after` read `unchecked`,
- *  `sameProcess` is false (a boolean, as on every other path), and the send reads unconfirmed. */
-export interface InputBoxEvidence {
-  seat: SeatReading | "unchecked";
+ *  input box showed before and after Enter. It decides the send's verdict: `verified` is true only for a seat
+ *  proven idle before the paste, then exact, then empty, on the same pane process (`#{pane_pid}`, the pane's root
+ *  process); that means the box was cleared after holding the text, normally by our Enter, never that the model
+ *  read it. `sameProcess` compares the pane's root process (usually a shell) and the seat's binding: an agent
+ *  restarted under the same shell is not caught by it, and the same pane and binding are not proof of the same
+ *  native conversation. An audited prompt answer reads no box, so it reads unconfirmed. */
+interface InputBoxEvidence {
+  seat: SeatReading;
   before: InputBoxReading;
   after: InputBoxReading;
   sameProcess: boolean;
 }
-
-/** The evidence of a verified send whose path does not read the input box (an audited prompt answer). */
-const INPUT_BOX_UNCHECKED: InputBoxEvidence = { seat: "unchecked", before: "unchecked", after: "unchecked", sameProcess: false };
 
 export interface CaptureResult {
   ok: boolean;
@@ -2917,13 +2910,13 @@ export class SessionTransport {
     }
     if (!textResult.ok) {
       // A draft refusal is the guard holding the write before any input; it is not an attempted write.
-      const policyRefusal = typeof textResult.code === "string" && textResult.code.startsWith("draft_");
+      const policyRefusal = typeof textResult.code === "string" && (textResult.code.startsWith("draft_") || textResult.code === "managed_compaction_pending");
       return observe({
         ok: false,
         sessionName,
         reason: policyRefusal ? textResult.code : "send_failed",
         outcome: "failed",
-        ...(policyRefusal ? {} : { inputPhase: "attempted" as const }),
+        ...(policyRefusal ? (textResult.code === "managed_compaction_pending" ? { inputPhase: "not_reached" as const } : {}) : { inputPhase: "attempted" as const }),
         error: `Failed to send text to '${sessionName}': ${textResult.message}`,
         ...(waitMode || policyRefusal ? { sent: false, ...waitEvidence } : {}),
       });
@@ -2959,7 +2952,6 @@ export class SessionTransport {
         if (runtime === "claude-code" && bindingChanged()) return observe(changedRecipient(true));
         if (!promptAnswerStaged(pane, text, runtime)) {
           return observe({ ok: true, sessionName, sent: true, verified: false, outcome: "rendered-unconfirmed", promptInteraction: "unverified",
-            ...(inputBoxRuntime ? { inputBox: INPUT_BOX_UNCHECKED } : {}),
             warning: [sendAdvisory, "prompt-override: answer sent as unbracketed input; submission unverified. No trailing Enter: the complete answer is not visibly staged (it may have been consumed, the prompt changed, or observation is unavailable)."].filter(Boolean).join(" ") });
         }
         sendAdvisory = [sendAdvisory, "prompt-override: answer sent as unbracketed input; Enter submitted the complete still-staged answer."].filter(Boolean).join(" ");
@@ -2972,14 +2964,14 @@ export class SessionTransport {
         (result) => result.ok ? "ok" : "failed",
       );
       if (!submitResult.ok) {
-        const policyRefusal = typeof submitResult.code === "string" && submitResult.code.startsWith("draft_");
+        const policyRefusal = typeof submitResult.code === "string" && (submitResult.code.startsWith("draft_") || submitResult.code === "managed_compaction_pending");
         return observe({
           ok: false,
           sessionName,
           reason: policyRefusal ? submitResult.code : "submit_failed",
           outcome: "failed",
           inputPhase: "written",
-          error: `Text is in '${sessionName}', but the Enter reported a failure, so the submission outcome is unconfirmed. The agent may need manual attention.`,
+          error: `Text is in '${sessionName}', but the Enter reported a failure, so the submission outcome is unconfirmed. The agent may need manual attention.${submitResult.code === "managed_compaction_pending" ? ` ${submitResult.message}` : ""}`,
           ...(waitMode || policyRefusal ? { sent: true, ...waitEvidence } : {}),
         });
       }
@@ -3017,25 +3009,22 @@ export class SessionTransport {
         const count = envelope ? (pane: string, expected: string) => countEnvelopeOccurrences(pane, expected, promptClass) : countOccurrences;
         const preCount = count(transcript(preVerifyContent), snippet);
         const postCount = count(transcript(content), snippet);
-        // An audited prompt answer reads no box (no extra read is added for it), so it says so: unchecked, and
-        // unconfirmed; it never falls back to the count below.
+        // An audited prompt answer reads no box (no extra read is added for it), so it reads unconfirmed; it never
+        // falls back to the count below.
         const inputBox = boxBefore && inputBoxRuntime
           ? await this.inputBoxEvidence(sessionName, sessionMeta, boxBefore, readInputBox(content, inputBoxRuntime, text, boxBefore.pane))
-          : inputBoxRuntime && promptOverride ? INPUT_BOX_UNCHECKED : undefined;
+          : undefined;
         // With the setting on, only a seat proven idle before the paste and input-box evidence verify: exact before
         // Enter, empty after, same process. A not-idle or unknown seat always reads unconfirmed.
         const verified = inputBoxRuntime
           ? inputBox?.seat === "idle" && inputBox.before === "exact" && inputBox.after === "empty" && inputBox.sameProcess
           : postCount > preCount;
-        return observe({ ok: true, sessionName, ...interaction, verified, outcome: verified ? "delivered" : "rendered-unconfirmed", ...(inputBox ? { inputBox } : {}), ...(sendAdvisory ? { warning: sendAdvisory } : {}), ...(waitMode ? { sent: true, ...waitEvidence } : {}) });
+        return observe({ ok: true, sessionName, ...interaction, verified, outcome: verified ? "delivered" : "rendered-unconfirmed", ...(sendAdvisory ? { warning: sendAdvisory } : {}), ...(waitMode ? { sent: true, ...waitEvidence } : {}) });
       } catch {
         if (observed && observed.post.state === "not_reached") {
           observed.post = { state: "unavailable", cause: "capture_error", capturedAt: this.now().toISOString(), captureSeq };
         }
-        const inputBox: InputBoxEvidence | undefined = boxBefore
-          ? { seat: boxBefore.seat, before: boxBefore.reading, after: "unavailable", sameProcess: false }
-          : inputBoxRuntime && promptOverride ? INPUT_BOX_UNCHECKED : undefined;
-        return observe({ ok: true, sessionName, ...interaction, verified: false, outcome: "rendered-unconfirmed", ...(inputBox ? { inputBox } : {}), ...(sendAdvisory ? { warning: sendAdvisory } : {}), ...(waitMode ? { sent: true, ...waitEvidence } : {}) });
+        return observe({ ok: true, sessionName, ...interaction, verified: false, outcome: "rendered-unconfirmed", ...(sendAdvisory ? { warning: sendAdvisory } : {}), ...(waitMode ? { sent: true, ...waitEvidence } : {}) });
       }
     }
 

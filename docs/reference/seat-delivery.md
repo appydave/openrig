@@ -96,6 +96,15 @@ A held queue wake stays on the existing queue recovery path. Interrupted histori
 writes become indeterminate at startup. That history never suppresses a current
 explicit request and is not consulted to determine its result.
 
+At startup, the queue recovery pass retries still-current failed or unconfirmed
+wake notifications. It preserves their original envelopes and warns that delivery
+may repeat. Each notification is attempted once per pass, including coalesced
+wakes; a failed attempt cannot spin in that pass. A no-write failure on a later
+retry does not resolve an earlier unknown delivery. Prior-process claims are
+reconciled before new startup sends can begin. Known deliveries and held or
+retired messages stay untouched. Closed, claimed or reassigned work is not woken,
+and the retry never repeats the queue mutation or a lifecycle action.
+
 The existing retention limits apply: 100 records and 8 MiB per seat, with a 1 MiB
 message limit. Hold mode cannot retain another message at capacity. Draft-aware
 input attempts continue with a bookkeeping warning if a record cannot be saved;
@@ -148,3 +157,10 @@ current transport result; an unknown write is not proof that nothing arrived.
 The transport still protects approval/question prompts, human drafts and recipient identity. Scheduler timing,
 current parked-row eligibility and stop checks still apply. This changes message retries, not the idempotence of
 structured continuity actions such as creating a cutover baton.
+
+The parked-owner supervisor also retries current obligations despite an earlier failed, unknown or unrecorded attempt.
+A recorded success to the same known occupant waits for a change in its obligations. Rotation includes retained attempts,
+so a held input cannot starve another owner. Interactive prompts stay with the existing prompt-refusal recovery.
+Its own reminders wait while managed compaction owes the turn boundary, restore or audit, including a fresh check
+at the paste and Enter boundary. A stage that begins after paste leaves an honest partial-input result; OpenRig
+does not erase or replay that text. Peer messages and unrelated reminder policies keep their existing behavior.
