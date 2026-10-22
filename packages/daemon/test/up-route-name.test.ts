@@ -64,6 +64,16 @@ describe("POST /api/up rigName", () => {
     db.close();
   });
 
+  it.each([["apply", false], ["plan", true]] as const)("answers 400 rig_name_compose_project in %s mode for a spec that sets services.project_name", async (_mode, plan) => {
+    const { db, specPath, post } = setup();
+    fs.writeFileSync(specPath, SPEC.replace("pods:", "services:\n  kind: compose\n  compose_file: compose.yaml\n  project_name: shared-db\npods:"));
+    const res = await post("/api/up", { sourceRef: specPath, rigName: "alpha", ...(plan ? { plan: true } : {}) });
+    expect(res.status).toBe(400);
+    const body = await res.json() as { stages: Array<{ stage: string; detail?: { code?: string } }> };
+    expect(body.stages.find((s) => s.stage === "resolve_spec")?.detail?.code).toBe("rig_name_compose_project");
+    db.close();
+  });
+
   // Known limitation, kept on purpose: the launch lock is per source, so two simultaneous launches of one
   // spec answer 409 even under different names. Launched one after the other, both succeed.
   it("two simultaneous launches of one spec under different names: the second answers 409", async () => {
