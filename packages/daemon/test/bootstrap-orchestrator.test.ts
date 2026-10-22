@@ -1524,7 +1524,10 @@ exports:
     expect(run.source_kind).toBe("rig_spec");
   });
 
-  it("rejects service-backed pod-bundle launch with honest error before instantiate", async () => {
+  it.each([
+    ["service-backed pod-bundle launch with honest error", undefined, "services_unsupported", "Service-backed rigs cannot be launched from .rigbundle"],
+    ["--name for a pod bundle whose spec sets services.project_name", "alpha", "rig_name_compose_project", "services.project_name"],
+  ] as const)("rejects %s before instantiate, and removes the extracted bundle", async (_label, rigName, code, message) => {
     const { pack } = await import("../src/domain/bundle-archive.js");
     const { computeIntegrity } = await import("../src/domain/bundle-integrity.js");
     const { PodBundleSourceResolver } = await import("../src/domain/bundle-source-resolver.js");
@@ -1540,7 +1543,7 @@ summary: A service-backed rig in a bundle
 services:
   kind: compose
   compose_file: svc.compose.yaml
-  wait_for:
+${rigName ? "  project_name: shared-db\n" : ""}  wait_for:
     - url: http://127.0.0.1:8200/health
 pods:
   - id: dev
@@ -1613,13 +1616,13 @@ ${integrityYaml}
       podInstantiator: mockPodInstantiator as any,
     });
 
-    const result = await orch.bootstrap({ mode: "apply", sourceRef: bundlePath, sourceKind: "rig_bundle" });
+    const result = await orch.bootstrap({ mode: "apply", sourceRef: bundlePath, sourceKind: "rig_bundle", rigName });
 
     expect(result.status).toBe("failed");
-    expect(result.errors.some((e: string) => e.includes("Service-backed rigs cannot be launched from .rigbundle"))).toBe(true);
+    expect(result.errors.some((e: string) => e.includes(message))).toBe(true);
     const resolveStage = result.stages.find((s) => s.stage === "resolve_spec" && s.status === "failed");
     expect(resolveStage).toBeDefined();
-    expect((resolveStage!.detail as Record<string, unknown>)["code"]).toBe("services_unsupported");
+    expect((resolveStage!.detail as Record<string, unknown>)["code"]).toBe(code);
     // Must NOT have called instantiate
     expect(mockPodInstantiator.instantiate).not.toHaveBeenCalled();
     // Temp dir must be cleaned up even on rejection — only check dirs created during this test

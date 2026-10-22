@@ -185,16 +185,16 @@ export class BootstrapOrchestrator {
         let podBundleTempDir: string | null = null;
         try {
           const podSource = await this.deps.podBundleSourceResolver.resolve(sourceRef);
-          const sourceYaml = this.deps.fsOps.readFile(podSource.specPath);
-          const sharedProject = rigNameComposeProjectConflict(sourceYaml, opts.rigName);
-          if (sharedProject) return this.refuseRigName(run, stages, warnings, sharedProject);
-          const rawYaml = withRigName(sourceYaml, opts.rigName);
-          specDir = nodePath.dirname(podSource.specPath);
-          let installRoot: string | undefined;
           podBundleTempDir = podSource.tempDir;
-          stages.push({ stage: "resolve_spec", status: "ok", detail: { specName: podSource.manifest.name, source: "pod_bundle" } });
-
           try {
+            const sourceYaml = this.deps.fsOps.readFile(podSource.specPath);
+            const sharedProject = rigNameComposeProjectConflict(sourceYaml, opts.rigName);
+            if (sharedProject) return this.refuseRigName(run, stages, warnings, sharedProject);
+            const rawYaml = withRigName(sourceYaml, opts.rigName);
+            specDir = nodePath.dirname(podSource.specPath);
+            let installRoot: string | undefined;
+            stages.push({ stage: "resolve_spec", status: "ok", detail: { specName: podSource.manifest.name, source: "pod_bundle" } });
+
             const parsedSpec = parsePodBundleManifest(rawYaml) as Record<string, unknown>;
             const serviceBundleTarget = Boolean(opts.targetRoot && parsedSpec?.services && typeof parsedSpec.services === "object"
               && new SettingsStore().resolveOne("bundle.services_enabled").value === true);
