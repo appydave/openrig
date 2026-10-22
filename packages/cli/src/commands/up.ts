@@ -45,6 +45,7 @@ function isFilesystemRoot(cwd: string): boolean {
 }
 
 const RENAME_REFUSAL = "--name applies to a new launch from a rig spec or bundle. An existing rig is restored under its own name; renaming an existing rig is not supported.";
+const HOST_RENAME_REFUSAL = "--name over --host needs a spec path or bundle file, not a bare spec or rig name: pass the spec path or bundle file with --name.";
 
 /** The mistakes the daemon would refuse in an env: block, caught before anything is sent. */
 function checkEnvAssignment(assignment: string): string | null {
@@ -238,7 +239,7 @@ team back with its conversations, run rig up <rig-name> --existing, not the spec
           return;
         }
         if (rigName !== undefined && !source.includes("/") && !/\.(ya?ml|rigbundle|rigtopology)$/i.test(source)) {
-          console.error(RENAME_REFUSAL);
+          console.error(HOST_RENAME_REFUSAL);
           process.exitCode = 1;
           return;
         }
