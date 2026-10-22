@@ -406,7 +406,10 @@ team back with its conversations, run rig up <rig-name> --existing, not the spec
         return true;
       };
       if (isRigName && opts.existing && refuseNameOnRestore()) return;
-      if (isRigName && await refuseArchivedName(source)) return;
+      // With --name a bare name can only mean a library spec to launch under the new name, so a rig of the
+      // same name, running or archived, does not make it ambiguous; with no library match the restore refuses --name.
+      const launchingUnderNewName = rigName !== undefined;
+      if (isRigName && !launchingUnderNewName && await refuseArchivedName(source)) return;
       if (isRigName && !opts.existing) {
         try {
           const { resolveLibrarySpec } = await import("./specs.js");
@@ -417,8 +420,8 @@ team back with its conversations, run rig up <rig-name> --existing, not the spec
           // An alias must not bypass the canonical name's existing/archive checks.
           const resolvedName = source === "first-project" && entry.name === "starter" && entry.sourceType === "builtin"
             ? entry.name : source;
-          if (resolvedName !== source && await refuseArchivedName(resolvedName)) return;
-          const rigMatches = rigSummaries.filter((r) => r.name === source || r.name === resolvedName);
+          if (!launchingUnderNewName && resolvedName !== source && await refuseArchivedName(resolvedName)) return;
+          const rigMatches = launchingUnderNewName ? [] : rigSummaries.filter((r) => r.name === source || r.name === resolvedName);
           if (rigMatches.length > 0) {
             console.error(`'${source}' is ambiguous — it matches both an existing rig restore target and a library spec.`);
             console.error(`  To launch the library spec: rig up ${entry.sourcePath}`);

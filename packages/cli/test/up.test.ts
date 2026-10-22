@@ -1283,6 +1283,46 @@ describe("Up CLI", () => {
   });
 
   it.each([
+    ["a running rig", [{ id: "r1", name: "alpha", nodeCount: 1 }], []],
+    ["an archived rig", [], [{ id: "r0", name: "alpha" }]],
+  ])("up <library name> --name launches the library spec when the name also matches %s", async (_label, active, archived) => {
+    const posts: Array<Record<string, unknown>> = [];
+    const origListeners = server.listeners("request");
+    server.removeAllListeners("request");
+    server.on("request", async (req: http.IncomingMessage, res: http.ServerResponse) => {
+      const url = decodeURIComponent(req.url ?? "");
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      res.writeHead(url === "/api/up" ? 201 : 200, { "Content-Type": "application/json" });
+      if (url === "/api/up") {
+        posts.push(JSON.parse(body));
+        res.end(JSON.stringify({ status: "completed", runId: "r", rigId: "g", stages: [], errors: [] }));
+      } else if (url.startsWith("/api/specs/library")) {
+        res.end(JSON.stringify([{ id: "lib1", name: "alpha", sourcePath: "/specs/alpha.yaml" }]));
+      } else if (url === "/api/rigs/summary?archived=only") {
+        res.end(JSON.stringify(archived));
+      } else if (url === "/api/rigs/summary") {
+        res.end(JSON.stringify(active));
+      } else {
+        res.end(JSON.stringify({}));
+      }
+    });
+
+    const { logs, exitCode } = await captureLogs(async () => {
+      await makeCmd().parseAsync(["node", "rig", "up", "alpha", "--name", "beta"]);
+    });
+
+    server.removeAllListeners("request");
+    for (const l of origListeners) server.on("request", l as (...args: unknown[]) => void);
+
+    expect(logs.join("\n")).not.toContain("ambiguous");
+    expect(logs.join("\n")).not.toContain("archived");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ sourceRef: "/specs/alpha.yaml", rigName: "beta" });
+    expect(exitCode ?? 0).toBe(0);
+  });
+
+  it.each([
     ["fresh alias", [], [], false, 0, "first-project"],
     ["existing starter", [{ id: "new-rig", name: "starter" }], [], false, 1, "first-project"],
     ["existing old name", [{ id: "old-rig", name: "first-project" }], [], false, 1, "first-project"],
